@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Table, Filter, Download } from 'lucide-react';
+import { Table, Filter, Download, Plus, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { generateRiskMatrixPDF } from '@/lib/pdfGenerator';
+import { HazardFormDialog } from './HazardFormDialog';
 
 type RiskLevel = 'All' | 'High' | 'Medium' | 'Low';
 
-interface RiskItem {
+export interface RiskItem {
   id: number;
   hazard: string;
   consequence: string;
@@ -18,7 +19,14 @@ interface RiskItem {
   residualRisk: 'High' | 'Medium' | 'Low';
 }
 
-const riskData: RiskItem[] = [
+const calculateRiskLevel = (severity: number, likelihood: number): 'High' | 'Medium' | 'Low' => {
+  const score = severity * likelihood;
+  if (score >= 12) return 'High';
+  if (score >= 5) return 'Medium';
+  return 'Low';
+};
+
+const initialRiskData: RiskItem[] = [
   {
     id: 1,
     hazard: "Bird strike on takeoff",
@@ -144,6 +152,10 @@ const getRiskBadgeColor = (level: string) => {
 
 export const RiskMatrix = () => {
   const [filter, setFilter] = useState<RiskLevel>('All');
+  const [riskData, setRiskData] = useState<RiskItem[]>(initialRiskData);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<RiskItem | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const filteredData = filter === 'All' 
     ? riskData 
@@ -151,6 +163,66 @@ export const RiskMatrix = () => {
 
   const handleDownloadMatrix = () => {
     generateRiskMatrixPDF(filteredData);
+  };
+
+  const handleAddHazard = (data: {
+    hazard: string;
+    consequence: string;
+    severity: number;
+    likelihood: number;
+    mitigation: string;
+    residualSeverity: number;
+    residualLikelihood: number;
+  }) => {
+    const newId = Math.max(...riskData.map(item => item.id), 0) + 1;
+    const newItem: RiskItem = {
+      id: newId,
+      ...data,
+      riskLevel: calculateRiskLevel(data.severity, data.likelihood),
+      residualRisk: calculateRiskLevel(data.residualSeverity, data.residualLikelihood),
+    };
+    setRiskData([...riskData, newItem]);
+  };
+
+  const handleEditHazard = (data: {
+    hazard: string;
+    consequence: string;
+    severity: number;
+    likelihood: number;
+    mitigation: string;
+    residualSeverity: number;
+    residualLikelihood: number;
+  }) => {
+    if (!editingItem) return;
+    setRiskData(riskData.map(item => 
+      item.id === editingItem.id 
+        ? {
+            ...item,
+            ...data,
+            riskLevel: calculateRiskLevel(data.severity, data.likelihood),
+            residualRisk: calculateRiskLevel(data.residualSeverity, data.residualLikelihood),
+          }
+        : item
+    ));
+    setEditingItem(null);
+  };
+
+  const handleDeleteHazard = (id: number) => {
+    setDeletingId(id);
+    setTimeout(() => {
+      setRiskData(riskData.filter(item => item.id !== id));
+      setDeletingId(null);
+    }, 300);
+  };
+
+  const openEditDialog = (item: RiskItem) => {
+    setEditingItem(item);
+    setIsDialogOpen(true);
+  };
+
+  const openAddDialog = () => {
+    setEditingItem(null);
+    setIsDialogOpen(true);
   };
 
   return (
@@ -164,10 +236,16 @@ export const RiskMatrix = () => {
               </div>
               <h2 className="text-4xl font-bold text-foreground">SRM Risk Matrix</h2>
             </div>
-            <Button onClick={handleDownloadMatrix} className="bg-primary hover:bg-primary/90 gap-2">
-              <Download className="h-4 w-4" />
-              Download Matrix
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button onClick={openAddDialog} className="bg-aviation-green hover:bg-aviation-green/90 gap-2">
+                <Plus className="h-4 w-4" />
+                Add Hazard
+              </Button>
+              <Button onClick={handleDownloadMatrix} variant="outline" className="gap-2">
+                <Download className="h-4 w-4" />
+                Download Matrix
+              </Button>
+            </div>
           </div>
 
           {/* Filter Buttons */}
@@ -180,7 +258,7 @@ export const RiskMatrix = () => {
               <button
                 key={level}
                 onClick={() => setFilter(level)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:scale-105 ${
                   filter === level
                     ? level === 'All'
                       ? 'bg-foreground text-background'
@@ -200,7 +278,7 @@ export const RiskMatrix = () => {
           {/* Table Container with Horizontal Scroll */}
           <div className="bg-card rounded-2xl shadow-xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1200px]">
+              <table className="w-full min-w-[1400px]">
                 <thead>
                   <tr className="bg-navy text-primary-foreground">
                     <th className="px-4 py-4 text-left text-sm font-semibold">ID</th>
@@ -213,15 +291,20 @@ export const RiskMatrix = () => {
                     <th className="px-4 py-4 text-center text-sm font-semibold">Res. Sev.</th>
                     <th className="px-4 py-4 text-center text-sm font-semibold">Res. Lik.</th>
                     <th className="px-4 py-4 text-center text-sm font-semibold">Res. Risk</th>
+                    <th className="px-4 py-4 text-center text-sm font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredData.map((item, index) => (
                     <tr
                       key={item.id}
-                      className={`border-b border-border transition-colors hover:bg-muted/50 ${
+                      className={`border-b border-border transition-all duration-300 hover:bg-muted/50 ${
                         index % 2 === 0 ? 'bg-background' : 'bg-muted/20'
-                      }`}
+                      } ${deletingId === item.id ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}
+                      style={{ 
+                        animationDelay: `${index * 50}ms`,
+                        animation: 'fade-in 0.3s ease-out forwards'
+                      }}
                     >
                       <td className="px-4 py-4 text-sm font-semibold text-foreground">{item.id}</td>
                       <td className="px-4 py-4 text-sm text-foreground font-medium">{item.hazard}</td>
@@ -229,7 +312,7 @@ export const RiskMatrix = () => {
                       <td className="px-4 py-4 text-center text-sm font-semibold text-foreground">{item.severity}</td>
                       <td className="px-4 py-4 text-center text-sm font-semibold text-foreground">{item.likelihood}</td>
                       <td className="px-4 py-4 text-center">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getRiskBadgeColor(item.riskLevel)}`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 ${getRiskBadgeColor(item.riskLevel)}`}>
                           {item.riskLevel}
                         </span>
                       </td>
@@ -237,15 +320,41 @@ export const RiskMatrix = () => {
                       <td className="px-4 py-4 text-center text-sm font-semibold text-foreground">{item.residualSeverity}</td>
                       <td className="px-4 py-4 text-center text-sm font-semibold text-foreground">{item.residualLikelihood}</td>
                       <td className="px-4 py-4 text-center">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getRiskBadgeColor(item.residualRisk)}`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 ${getRiskBadgeColor(item.residualRisk)}`}>
                           {item.residualRisk}
                         </span>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => openEditDialog(item)}
+                            className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all duration-200 hover:scale-110"
+                            title="Edit hazard"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteHazard(item.id)}
+                            className="p-2 text-muted-foreground hover:text-risk-high hover:bg-risk-high/10 rounded-lg transition-all duration-200 hover:scale-110"
+                            title="Delete hazard"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            
+            {filteredData.length === 0 && (
+              <div className="p-12 text-center text-muted-foreground animate-fade-in">
+                <Table className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No hazards found</p>
+                <p className="text-sm">Try changing the filter or add a new hazard</p>
+              </div>
+            )}
           </div>
 
           {/* Legend */}
@@ -266,6 +375,26 @@ export const RiskMatrix = () => {
           </div>
         </div>
       </div>
+
+      {/* Hazard Form Dialog */}
+      <HazardFormDialog
+        isOpen={isDialogOpen}
+        onClose={() => {
+          setIsDialogOpen(false);
+          setEditingItem(null);
+        }}
+        onSubmit={editingItem ? handleEditHazard : handleAddHazard}
+        initialData={editingItem ? {
+          hazard: editingItem.hazard,
+          consequence: editingItem.consequence,
+          severity: editingItem.severity,
+          likelihood: editingItem.likelihood,
+          mitigation: editingItem.mitigation,
+          residualSeverity: editingItem.residualSeverity,
+          residualLikelihood: editingItem.residualLikelihood,
+        } : undefined}
+        mode={editingItem ? 'edit' : 'add'}
+      />
     </section>
   );
 };
