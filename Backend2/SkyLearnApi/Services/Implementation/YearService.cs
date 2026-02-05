@@ -43,7 +43,6 @@ namespace SkyLearnApi.Services.Implementation
 
             if (!departmentExists)
                 throw new KeyNotFoundException("Department not found");
-
             var years = await _db.Years
                 .Where(y => y.DepartmentId == departmentId)
                 .Include(y => y.Department)
