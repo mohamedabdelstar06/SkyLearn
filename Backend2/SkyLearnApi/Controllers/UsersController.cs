@@ -43,7 +43,7 @@ namespace SkyLearnApi.Controllers
         /// Create a new user with specified role
        
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateUserDto dto)
+        public async Task<IActionResult> Create([FromForm] CreateUserDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -59,7 +59,7 @@ namespace SkyLearnApi.Controllers
         /// Update an existing user
 
         [HttpPut("{id:int}")]
-        public async Task<IActionResult> Update(int id, [FromBody] UpdateUserDto dto)
+        public async Task<IActionResult> Update(int id, [FromForm] UpdateUserDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);

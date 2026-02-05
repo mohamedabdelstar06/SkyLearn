@@ -60,6 +60,10 @@ namespace SkyLearnApi.Configurations
                             .WithOne(c => c.Year)
                             .HasForeignKey(c => c.YearId)
                             .OnDelete(DeleteBehavior.Restrict);
+
+                     // Composite Unique Index
+                     builder.HasIndex(y => new { y.Name, y.DepartmentId })
+                            .IsUnique();
               }
     }
 }

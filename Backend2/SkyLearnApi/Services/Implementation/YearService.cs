@@ -71,6 +71,9 @@ namespace SkyLearnApi.Services.Implementation
             if (department == null)
                 throw new KeyNotFoundException($"Department '{dto.DepartmentName}' not found");
 
+            if (await _db.Years.AnyAsync(y => y.Name == dto.Name && y.DepartmentId == department.Id))
+                throw new InvalidOperationException($"Year '{dto.Name}' already exists in department '{department.Name}'.");
+
             var year = dto.Adapt<Year>();
             year.CreatedById = parsedUserId;
             year.CreatedAt = DateTime.UtcNow;
@@ -79,10 +82,8 @@ namespace SkyLearnApi.Services.Implementation
             year.TotalHours = 0;
 
             year.DepartmentId = department.Id;
-
             _db.Years.Add(year);
             await _db.SaveChangesAsync();
-
             await _db.Entry(year).Reference(y => y.Department).LoadAsync();
             await _db.Entry(year).Reference(y => y.CreatedBy).LoadAsync();
 
@@ -105,6 +106,20 @@ namespace SkyLearnApi.Services.Implementation
                      throw new KeyNotFoundException($"Department '{dto.DepartmentName}' not found");
                  
                  year.DepartmentId = department.Id;
+            }
+
+            if (dto.Name != year.Name || year.Department.Name != dto.DepartmentName)
+            {
+                 var targetDeptId = year.DepartmentId; // Default to current dept
+                 if (year.Department.Name != dto.DepartmentName)
+                 {
+                     // Already resolved department above, but getting ID again for clarity or reusing local var if I had refactored better.
+                     // The code above updates year.DepartmentId. Let's rely on that.
+                     targetDeptId = year.DepartmentId;
+                 }
+
+                 if (await _db.Years.AnyAsync(y => y.Name == dto.Name && y.DepartmentId == targetDeptId && y.Id != id))
+                     throw new InvalidOperationException($"Year '{dto.Name}' already exists in the target department.");
             }
 
             year.Name = dto.Name;

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SkyLearnApi.Data;
 
@@ -11,9 +12,11 @@ using SkyLearnApi.Data;
 namespace SkyLearnApi.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260131163803_AddEnrollmentsTable")]
+    partial class AddEnrollmentsTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -404,9 +407,6 @@ namespace SkyLearnApi.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
-                    b.Property<int>("InstructorId")
-                        .HasColumnType("int");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -423,8 +423,6 @@ namespace SkyLearnApi.Migrations
                     b.HasIndex("CreatedById");
 
                     b.HasIndex("DepartmentId");
-
-                    b.HasIndex("InstructorId");
 
                     b.HasIndex("YearId");
 
@@ -728,12 +726,6 @@ namespace SkyLearnApi.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("SkyLearnApi.Entities.ApplicationUser", "Instructor")
-                        .WithMany()
-                        .HasForeignKey("InstructorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("SkyLearnApi.Entities.Year", "Year")
                         .WithMany("Courses")
                         .HasForeignKey("YearId")
@@ -743,8 +735,6 @@ namespace SkyLearnApi.Migrations
                     b.Navigation("CreatedBy");
 
                     b.Navigation("Department");
-
-                    b.Navigation("Instructor");
 
                     b.Navigation("Year");
                 });

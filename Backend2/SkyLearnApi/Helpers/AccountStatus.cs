@@ -16,7 +16,7 @@ namespace SkyLearnApi.Helpers
     }
 }
  
-    /// User account status values derived from internal IsActive and IsActivated flags.
+    //User account status values derived from internal IsActive and IsActivated flags.
     /// This provides a business-friendly abstraction for non-technical admins.
     /// 
     /// Status derivation rules:

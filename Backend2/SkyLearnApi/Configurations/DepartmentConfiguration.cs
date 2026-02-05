@@ -14,6 +14,9 @@ namespace SkyLearnApi.Configuration
                 .IsRequired()
                 .HasMaxLength(100);
 
+            builder.HasIndex(d => d.Name)
+                .IsUnique();
+
             builder.Property(d => d.ImageUrl)
                 .HasMaxLength(255);
 
