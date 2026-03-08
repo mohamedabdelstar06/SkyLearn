@@ -3,17 +3,14 @@
 namespace SkyLearnApi.Entities
 {
     public class ApplicationUser : IdentityUser<int>
-    {
-        //==============================================================================
-        // INHERITED FROM IdentityUser<int>:
+    {// INHERITED FROM IdentityUser<int>:
         //Id (int)
         //Email (string?)
         //PasswordHash (string?) - NEVER store plain passwords!
         //UserName (string?)
         //PhoneNumber (string?)
         //EmailConfirmed (bool)
-        //LockoutEnd, AccessFailedCount, etc
-        // =================================================================== 
+        //LockoutEnd, AccessFailedCount, etc 
         // Universal Properties (apply to ALL users: Admin, Instructor,Student)
         public string FullName { get; set; } = string.Empty;
         public string? NationalId { get; set; }

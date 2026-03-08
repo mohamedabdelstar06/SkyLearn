@@ -1,5 +1,6 @@
 ﻿using Serilog;
 using SkyLearnApi.Middleware;
+using SkyLearnApi.Hubs;
 
 namespace SkyLearnApi.Extentions
 {
@@ -9,7 +10,6 @@ namespace SkyLearnApi.Extentions
         {
             return app.UseMiddleware<GlobalExceptionMiddleware>();
         }
-
         public static IApplicationBuilder UseSerilogLogging(this IApplicationBuilder app)
         {
             return app.UseSerilogRequestLogging(options =>
@@ -50,25 +50,63 @@ namespace SkyLearnApi.Extentions
 
         public static WebApplication ConfigureMiddlewarePipeline(this WebApplication app)
         {
-            app.UsePathBase(app.Configuration.GetValue<string>("PathBase") ?? "/");
+            var pathBase = app.Configuration.GetValue<string>("PathBase");
+            if (!string.IsNullOrEmpty(pathBase))
+            {
+                app.UsePathBase(pathBase);
+            }
+
             app.UseSerilogLogging();
             app.UseGlobalExceptionHandler();
-            
-            app.UseSwagger();
-            app.UseSwaggerUI(options =>
+
+            // Swagger should be available in all environments for API documentation
+            // But you can restrict it to Development only if needed
+            app.UseSwagger(c =>
             {
-                options.SwaggerEndpoint("/swagger/v1/swagger.json", "SkyLearn API v1");
-                options.RoutePrefix = string.Empty;
+                c.RouteTemplate = "swagger/{documentName}/swagger.json";
             });
-            
-            app.UseStaticFiles();
+
+            app.UseSwaggerUI(c =>
+            {
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "SkyLearn API v1");
+                c.RoutePrefix = string.Empty; // Serve Swagger UI at root
+                c.DocumentTitle = "SkyLearn API Documentation";
+                c.DefaultModelsExpandDepth(-1); // Hide models section by default
+                c.DisplayRequestDuration();
+                c.EnableDeepLinking();
+                c.EnableFilter();
+                c.ShowExtensions();
+                c.EnableValidator();
+            });
+
             app.UseCors("AllowAll");
+
+            var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+            // Ensure common media types are present
+            if (!provider.Mappings.ContainsKey(".mp4")) provider.Mappings[".mp4"] = "video/mp4";
+            if (!provider.Mappings.ContainsKey(".mkv")) provider.Mappings[".mkv"] = "video/x-matroska";
+            if (!provider.Mappings.ContainsKey(".webm")) provider.Mappings[".webm"] = "video/webm";
+            if (!provider.Mappings.ContainsKey(".mp3")) provider.Mappings[".mp3"] = "audio/mpeg";
+
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                ContentTypeProvider = provider,
+                ServeUnknownFileTypes = true,
+                DefaultContentType = "application/octet-stream",
+                OnPrepareResponse = ctx =>
+                {
+                    ctx.Context.Response.Headers["Accept-Ranges"] = "bytes";
+                    ctx.Context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                }
+            });
+
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapControllers();
-            
+            app.MapHub<NotificationHub>("/hubs/notifications");
             return app;
         }
     }
 }
+

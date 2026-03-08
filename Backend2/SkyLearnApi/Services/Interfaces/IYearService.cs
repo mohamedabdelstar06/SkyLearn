@@ -3,6 +3,7 @@ namespace SkyLearnApi.Services.Interfaces
     public interface IYearService
     {
         Task<YearResponseDto?> GetByIdAsync(int id);
+        Task<YearDetailResponseDto?> GetByIdWithCoursesAsync(int id);
         
          
         /// Gets a year by ID and validates it belongs to the specified department.

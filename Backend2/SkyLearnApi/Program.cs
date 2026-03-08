@@ -15,15 +15,17 @@ builder.Services.AddAnalyticsServices(builder.Configuration);
 builder.Services.AddJwtConfiguration(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddMapsterConfiguration();
-builder.Services.AddApplicationServices();
+builder.Services.AddApplicationServices(builder.Configuration);
+builder.Services.AddSignalR();
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.SetIsOriginAllowed(_ => true)
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -46,8 +48,15 @@ var app = builder.Build();
 
 Log.Information("SkyLearnApi Starting - Environment: {Environment}", app.Environment.EnvironmentName);
 
-await app.Services.SeedRolesAsync();
-await app.Services.SeedAdminUserAsync();
+try
+{
+    await app.Services.SeedRolesAsync();
+    await app.Services.SeedAdminUserAsync();
+}
+catch (Exception ex)
+{
+    Log.Error(ex, "Error during database seeding. Application will continue starting.");
+}
 
 app.ConfigureMiddlewarePipeline();
 

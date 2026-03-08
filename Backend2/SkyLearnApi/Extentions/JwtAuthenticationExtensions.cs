@@ -49,6 +49,19 @@ namespace SkyLearnApi.Extentions
 
                 options.Events = new JwtBearerEvents
                 {
+                    // SignalR sends JWT as query string ?access_token=... since WebSockets can't use headers
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        var path = context.HttpContext.Request.Path;
+
+                        if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                        {
+                            context.Token = accessToken;
+                        }
+
+                        return Task.CompletedTask;
+                    },
                     OnAuthenticationFailed = context =>
                     {
                         var error = context.Exception.Message;
@@ -118,7 +131,6 @@ namespace SkyLearnApi.Extentions
                     }
                 };
             });
-
             return services;
         }
     }

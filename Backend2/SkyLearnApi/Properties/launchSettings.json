@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/launchsettings.json",
   "profiles": {
     "SkyLearnApi": {
-      "commandName": "Project",
+      "commandName": "Project",   
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "launchUrl": "swagger",

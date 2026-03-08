@@ -170,77 +170,136 @@ namespace SkyLearnApi.Services.Implementation
         /// <inheritdoc />
         public async Task<AuthResponseDto?> LoginAsync(string email, string password)
         {
-            var user = await _userManager.FindByEmailAsync(email);
-
-            // Validate: User must exist
-            if (user == null)
+            try
             {
-                await _activityService.TrackLoginFailedAsync(email, "UserNotFound");
-                return null;
-            }
+                Log.Information("Login attempt for email: {Email}", email);
 
-            // Validate: User must be active
-            if (!user.IsActive)
-            {
-                await _activityService.TrackLoginFailedAsync(email, "UserInactive");
-                return null;
-            }
+                var user = await _userManager.FindByEmailAsync(email);
 
-            // Validate: User must be activated (password set)
-            if (!user.IsActivated)
-            {
-                Log.Warning("Login attempt for non-activated account: {Email}", email);
-                await _activityService.TrackLoginFailedAsync(email, "AccountNotActivated");
-                return null;
-            }
+                // Validate: User must exist
+                if (user == null)
+                {
+                    Log.Warning("Login failed: User not found for email: {Email}", email);
+                    await SafeTrackLoginFailedAsync(email, "UserNotFound");
+                    return null;
+                }
 
-            // Validate password
-            var result = await _signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
+                Log.Debug("User found: Id={UserId}, Email={Email}, IsActive={IsActive}, IsActivated={IsActivated}",
+                    user.Id, user.Email, user.IsActive, user.IsActivated);
 
-            if (!result.Succeeded)
-            {
-                var reason = result.IsLockedOut ? "AccountLockedOut" :
-                             result.IsNotAllowed ? "SignInNotAllowed" : "InvalidPassword";
+                // Validate: User must be active
+                if (!user.IsActive)
+                {
+                    Log.Warning("Login failed: User inactive for email: {Email}, UserId: {UserId}", email, user.Id);
+                    await SafeTrackLoginFailedAsync(email, "UserInactive");
+                    return null;
+                }
 
-                await _activityService.TrackLoginFailedAsync(email, reason);
-                return null;
-            }
+                // Validate: User must be activated (password set)
+                if (!user.IsActivated)
+                {
+                    Log.Warning("Login failed: Account not activated for email: {Email}, UserId: {UserId}", email, user.Id);
+                    await SafeTrackLoginFailedAsync(email, "AccountNotActivated");
+                    return null;
+                }
 
-            var roles = await _userManager.GetRolesAsync(user);
-            var tokenResult = await _jwtService.GenerateTokenAsync(user);
+                // Validate password
+                var result = await _signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
 
-            // Update last login time
-            user.LastLoginAt = DateTime.UtcNow;
-            await _userManager.UpdateAsync(user);
+                if (!result.Succeeded)
+                {
+                    var reason = result.IsLockedOut ? "AccountLockedOut" :
+                                 result.IsNotAllowed ? "SignInNotAllowed" : "InvalidPassword";
 
-            // Track successful login with session info
-            await _activityService.TrackLoginAsync(
-                user.Id,
-                sessionId: _activityService.GetCurrentSessionId(),
-                jti: tokenResult.Jti,
-                tokenExpiresAt: tokenResult.ExpiresAt,
-                metadata: new
+                    Log.Warning("Login failed: Password validation failed for email: {Email}, Reason: {Reason}", email, reason);
+                    await SafeTrackLoginFailedAsync(email, reason);
+                    return null;
+                }
+
+                Log.Debug("Password validated successfully for UserId: {UserId}", user.Id);
+
+                // Get roles and generate token
+                var roles = await _userManager.GetRolesAsync(user);
+                Log.Debug("User roles retrieved: UserId={UserId}, Roles={Roles}", user.Id, string.Join(", ", roles));
+
+                var tokenResult = await _jwtService.GenerateTokenAsync(user);
+                
+                if (tokenResult == null || string.IsNullOrEmpty(tokenResult.Token))
+                {
+                    Log.Error("JWT token generation failed for UserId: {UserId}", user.Id);
+                    throw new InvalidOperationException("Failed to generate authentication token");
+                }
+
+                Log.Debug("JWT token generated successfully for UserId: {UserId}, Jti: {Jti}", user.Id, tokenResult.Jti);
+
+                // Update last login time
+                user.LastLoginAt = DateTime.UtcNow;
+                var updateResult = await _userManager.UpdateAsync(user);
+                
+                if (!updateResult.Succeeded)
+                {
+                    Log.Warning("Failed to update LastLoginAt for UserId: {UserId}, but continuing with login", user.Id);
+                }
+
+                // Track successful login (non-blocking)
+                await SafeTrackLoginAsync(user.Id, tokenResult.ExpiresAt, new
                 {
                     email = user.Email,
                     roles,
+                    jti = tokenResult.Jti,
                     ipAddress = _activityService.GetCurrentIpAddress()
                 });
 
-            return new AuthResponseDto
-            {
-                Token = tokenResult.Token,
-                ExpiresIn = tokenResult.ExpiresAt,
-                User = new UserDto
+                var response = new AuthResponseDto
                 {
-                    Id = user.Id,
-                    FullName = user.FullName,
-                    Email = user.Email ?? "",
-                    Role = roles.FirstOrDefault() ?? "Student",
-                    Gender = user.Gender,
-                    City = user.City,
-                    ProfileImageUrl = user.ProfileImageUrl
-                }
-            };
+                    Token = tokenResult.Token,
+                    ExpiresIn = tokenResult.ExpiresAt,
+                    User = new UserDto
+                    {
+                        Id = user.Id,
+                        FullName = user.FullName,
+                        Email = user.Email ?? "",
+                        Role = roles.FirstOrDefault() ?? "Student",
+                        Gender = user.Gender,
+                        City = user.City,
+                        ProfileImageUrl = user.ProfileImageUrl
+                    }
+                };
+
+                Log.Information("Login successful for UserId: {UserId}, Email: {Email}", user.Id, email);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Unexpected error during login for email: {Email}", email);
+                throw; // Re-throw to be handled by middleware
+            }
+        }
+
+        private async Task SafeTrackLoginFailedAsync(string email, string reason)
+        {
+            try
+            {
+                await _activityService.TrackLoginFailedAsync(email, reason);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to track login failure for email: {Email}, reason: {Reason}", email, reason);
+                // Don't throw - activity tracking should not break login flow
+            }
+        }
+
+        private async Task SafeTrackLoginAsync(int userId, DateTime? tokenExpiresAt, object? metadata)
+        {
+            try
+            {
+                await _activityService.TrackLoginAsync(userId, tokenExpiresAt, metadata);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to track login success for UserId: {UserId}", userId);
+                // Don't throw - activity tracking should not break login flow
+            }
         }
 
         #endregion
@@ -263,10 +322,9 @@ namespace SkyLearnApi.Services.Implementation
 
             await _activityService.TrackLogoutAsync(
                 tokenInfo.UserId,
-                sessionId: _activityService.GetCurrentSessionId(),
-                jti: tokenInfo.Jti,
                 metadata: new
                 {
+                    jti = tokenInfo.Jti,
                     tokenExpiresAt = tokenInfo.ExpiresAt
                 });
         }

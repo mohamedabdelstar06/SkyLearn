@@ -23,17 +23,16 @@ namespace SkyLearnApi.Configuration
             builder.Property(a => a.Description)
                 .HasMaxLength(1000);
 
-            builder.Property(a => a.SessionId)
-                .HasMaxLength(100);
+            builder.Property(a => a.UserFullName)
+                .IsRequired()
+                .HasMaxLength(200)
+                .HasDefaultValue("");
 
             builder.Property(a => a.IpAddress)
                 .HasMaxLength(45); // IPv6 max length
 
             builder.Property(a => a.UserAgent)
                 .HasMaxLength(500);
-
-            builder.Property(a => a.Jti)
-                .HasMaxLength(100);
 
             builder.Property(a => a.Metadata)
                 .HasColumnType("NVARCHAR(MAX)");
@@ -62,24 +61,13 @@ namespace SkyLearnApi.Configuration
                 .HasDatabaseName("IX_ActivityLog_EntityName_EntityId")
                 .HasFilter("[EntityName] IS NOT NULL AND [EntityId] IS NOT NULL");
 
-            // Session-based queries
-            builder.HasIndex(a => a.SessionId)
-                .HasDatabaseName("IX_ActivityLog_SessionId")
-                .HasFilter("[SessionId] IS NOT NULL");
-
             // Time-based analytics
             builder.HasIndex(a => a.Timestamp)
                 .HasDatabaseName("IX_ActivityLog_Timestamp");
 
-            // JWT token lifecycle tracking
-            builder.HasIndex(a => a.Jti)
-                .HasDatabaseName("IX_ActivityLog_Jti")
-                .HasFilter("[Jti] IS NOT NULL");
-
-            // Login session analysis
-            builder.HasIndex(a => new { a.UserId, a.LoginTime })
-                .HasDatabaseName("IX_ActivityLog_UserId_LoginTime")
-                .HasFilter("[LoginTime] IS NOT NULL");
+            // UserFullName index for data science queries
+            builder.HasIndex(a => a.UserFullName)
+                .HasDatabaseName("IX_ActivityLog_UserFullName");
         }
     }
 }

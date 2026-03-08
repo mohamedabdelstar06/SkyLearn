@@ -38,6 +38,9 @@ namespace SkyLearnApi.Dtos.Users
     {
         public List<UserResponseDto> Users { get; set; } = new();
         public int TotalCount { get; set; }
+        public int TotalAdmins { get; set; }
+        public int TotalInstructors { get; set; }
+        public int TotalStudents { get; set; }
         public int PageNumber { get; set; }
         public int PageSize { get; set; }
         public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);

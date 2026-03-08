@@ -21,56 +21,82 @@ namespace SkyLearnApi.Services.Implementation
 
         public async Task<JwtTokenResult> GenerateTokenAsync(ApplicationUser user)
         {
-            var roles = await _userManager.GetRolesAsync(user);
-            var jti = Guid.NewGuid().ToString();
-            var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpireMinutes);
-
-            Log.Information("Generating JWT for UserId: {UserId}, Roles: {Roles}",
-                user.Id, string.Join(",", roles));
-
-            var claims = new List<Claim>
+            try
             {
-                new Claim("UserId", user.Id.ToString()),
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Email, user.Email ?? ""),
-                new Claim(ClaimTypes.Name, user.FullName),
-                new Claim(JwtRegisteredClaimNames.Jti, jti),
-                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString())
-            };
+                if (user == null)
+                {
+                    throw new ArgumentNullException(nameof(user), "User cannot be null");
+                }
 
-            foreach (var role in roles)
-            {
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                var roles = await _userManager.GetRolesAsync(user);
+                var jti = Guid.NewGuid().ToString();
+                var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpireMinutes);
+
+                Log.Information("Generating JWT for UserId: {UserId}, Roles: {Roles}",
+                    user.Id, string.Join(",", roles));
+
+                var claims = new List<Claim>
+                {
+                    new Claim("UserId", user.Id.ToString()),
+                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                    new Claim(ClaimTypes.Email, user.Email ?? ""),
+                    new Claim(ClaimTypes.Name, user.FullName),
+                    new Claim(JwtRegisteredClaimNames.Jti, jti),
+                    new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString())
+                };
+
+                foreach (var role in roles)
+                {
+                    claims.Add(new Claim(ClaimTypes.Role, role));
+                }
+
+                var secretKey = _jwtSettings.Key;
+
+                if (string.IsNullOrEmpty(secretKey))
+                {
+                    Log.Error("JWT Secret Key is missing from configuration");
+                    throw new InvalidOperationException("JWT Secret Key is missing from configuration");
+                }
+
+                if (secretKey.Length < 32)
+                {
+                    Log.Warning("JWT Secret Key is too short (minimum 32 characters recommended). Current length: {Length}", secretKey.Length);
+                }
+
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+                var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+                var token = new JwtSecurityToken(
+                    issuer: _jwtSettings.Issuer,
+                    audience: _jwtSettings.Audience,
+                    claims: claims,
+                    expires: expiresAt,
+                    signingCredentials: creds
+                );
+
+                var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+                if (string.IsNullOrEmpty(tokenString))
+                {
+                    Log.Error("JWT token string is null or empty after generation for UserId: {UserId}", user.Id);
+                    throw new InvalidOperationException("Failed to generate JWT token string");
+                }
+
+                Log.Debug("JWT generated successfully for UserId: {UserId}, Jti: {Jti}, TokenLength: {TokenLength}", 
+                    user.Id, jti, tokenString.Length);
+
+                return new JwtTokenResult
+                {
+                    Token = tokenString,
+                    Jti = jti,
+                    ExpiresAt = expiresAt
+                };
             }
-
-            var secretKey = _jwtSettings.Key;
-
-            if (string.IsNullOrEmpty(secretKey))
+            catch (Exception ex)
             {
-                throw new InvalidOperationException("JWT Secret Key is missing from configuration");
+                Log.Error(ex, "Error generating JWT token for UserId: {UserId}", user?.Id);
+                throw;
             }
-
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-            var token = new JwtSecurityToken(
-                issuer: _jwtSettings.Issuer,
-                audience: _jwtSettings.Audience,
-                claims: claims,
-                expires: expiresAt,
-                signingCredentials: creds
-            );
-
-            var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
-
-            Log.Debug("JWT generated successfully for UserId: {UserId}, Jti: {Jti}", user.Id, jti);
-
-            return new JwtTokenResult
-            {
-                Token = tokenString,
-                Jti = jti,
-                ExpiresAt = expiresAt
-            };
         }
 
         public JwtTokenInfo? ParseToken(string token)

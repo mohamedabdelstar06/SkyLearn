@@ -1,4 +1,5 @@
 using SkyLearnApi.DTOs.Import;
+using Hangfire;
 
 namespace SkyLearnApi.Services.Implementation
 {
@@ -7,17 +8,20 @@ namespace SkyLearnApi.Services.Implementation
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly AppDbContext _dbContext;
         private readonly IActivityService _activityService;
+        private readonly IBackgroundJobClient _backgroundJobClient;
         // Expected CSV header columns (case-insensitive matching)
         private static readonly string[] ExpectedHeaders = 
             { "Email", "FullName", "NationalId", "DepartmentName", "YearName", "SquadronName" };
         public StudentImportService(
             UserManager<ApplicationUser> userManager,
             AppDbContext dbContext,
-            IActivityService activityService)
+            IActivityService activityService,
+            IBackgroundJobClient backgroundJobClient)
         {
             _userManager = userManager;
             _dbContext = dbContext;
             _activityService = activityService;
+            _backgroundJobClient = backgroundJobClient;
         }
         public async Task<StudentImportResultDto> ImportStudentsFromCsvAsync(Stream csvStream)
         {
@@ -91,7 +95,8 @@ namespace SkyLearnApi.Services.Implementation
                     departmentsLookup,
                     yearsLookup,
                     squadronsLookup,
-                    existingEmails);
+                    existingEmails,
+                    existingNationalIds);
 
                 if (importError != null)
                 {
@@ -288,7 +293,8 @@ namespace SkyLearnApi.Services.Implementation
             Dictionary<string, int> departmentsLookup,
             Dictionary<string, int> yearsLookup,
             Dictionary<string, int> squadronsLookup,
-            HashSet<string> existingEmails)
+            HashSet<string> existingEmails,
+            HashSet<string> existingNationalIds)
         {
             // ========================================
             // VALIDATION PHASE
@@ -380,18 +386,40 @@ namespace SkyLearnApi.Services.Implementation
             // ========================================
             // CHECK IF USER EXISTS - UPDATE OR CREATE
             // ========================================
+            // Check NationalId uniqueness before creating/updating
+            if (!string.IsNullOrWhiteSpace(rowData.NationalId))
+            {
+                if (existingNationalIds.Contains(rowData.NationalId))
+                {
+                    // Find which user owns this NationalId for a clear error
+                    var ownerEmail = await _dbContext.Users
+                        .Where(u => u.NationalId == rowData.NationalId)
+                        .Select(u => u.Email)
+                        .FirstOrDefaultAsync();
+
+                    return (new StudentImportErrorDto
+                    {
+                        RowNumber = rowNumber,
+                        Email = rowData.Email,
+                        Error = $"The National ID '{rowData.NationalId}' is already registered" +
+                                (ownerEmail != null ? $" (used by {ownerEmail})" : "") +
+                                ". Each student must have a unique National ID."
+                    }, false);
+                }
+            }
+
             var existingUser = await _userManager.FindByEmailAsync(rowData.Email);
 
             if (existingUser != null)
             {
                 // USER EXISTS - Update their information (wasUpdate = true)
-                var updateError = await UpdateExistingUserAsync(rowNumber, rowData, existingUser, departmentId, yearId, squadronId);
+                var updateError = await UpdateExistingUserAsync(rowNumber, rowData, existingUser, departmentId, yearId, squadronId, existingNationalIds);
                 return (updateError, wasUpdate: true);
             }
             else
             {
                 // NEW USER - Create from scratch (wasUpdate = false)
-                var createError = await CreateNewUserAsync(rowNumber, rowData, departmentId, yearId, squadronId, existingEmails);
+                var createError = await CreateNewUserAsync(rowNumber, rowData, departmentId, yearId, squadronId, existingEmails, existingNationalIds);
                 return (createError, wasUpdate: false);
             }
         }
@@ -406,7 +434,8 @@ namespace SkyLearnApi.Services.Implementation
             ApplicationUser existingUser,
             int departmentId,
             int yearId,
-            int squadronId)
+            int squadronId,
+            HashSet<string> existingNationalIds)
         {
             try
             {
@@ -421,7 +450,11 @@ namespace SkyLearnApi.Services.Implementation
                 
                 if (!string.IsNullOrWhiteSpace(rowData.NationalId) && existingUser.NationalId != rowData.NationalId)
                 {
+                    // NationalId changed — uniqueness already checked in ProcessRowAsync
+                    if (!string.IsNullOrEmpty(existingUser.NationalId))
+                        existingNationalIds.Remove(existingUser.NationalId);
                     existingUser.NationalId = rowData.NationalId;
+                    existingNationalIds.Add(rowData.NationalId);
                     userUpdated = true;
                 }
 
@@ -512,7 +545,8 @@ namespace SkyLearnApi.Services.Implementation
             int departmentId,
             int yearId,
             int squadronId,
-            HashSet<string> existingEmails)
+            HashSet<string> existingEmails,
+            HashSet<string> existingNationalIds)
         {
             ApplicationUser? user = null;
             
@@ -571,10 +605,17 @@ namespace SkyLearnApi.Services.Implementation
                 _dbContext.StudentProfiles.Add(profile);
                 await _dbContext.SaveChangesAsync();
 
-                // Track the email so we don't create duplicates within same import
+                // Track the email and NationalId so we don't create duplicates within same import
                 existingEmails.Add(rowData.Email.ToLowerInvariant());
+                if (!string.IsNullOrWhiteSpace(rowData.NationalId))
+                    existingNationalIds.Add(rowData.NationalId);
 
                 Log.Debug("Successfully created new student: {Email}", rowData.Email);
+                
+                // Enqueue immediate welcome email
+                _backgroundJobClient.Enqueue<EmailJobs>(j => 
+                    j.SendWelcomeEmailAsync(rowData.Email, rowData.FullName, Roles.Student));
+                
                 return null;
             }
             catch (Exception ex)

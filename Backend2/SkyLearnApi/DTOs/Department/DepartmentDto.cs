@@ -10,6 +10,7 @@ namespace SkyLearnApi.Dtos.Department
         public string? HeadName { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+        public int NumberOfYears { get; set; }
         public ICollection<YearResponseDto> Years { get; set; } = new List<YearResponseDto>();
     }
 }

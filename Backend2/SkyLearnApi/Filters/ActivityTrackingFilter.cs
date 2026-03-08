@@ -4,18 +4,8 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Serilog;
 using SkyLearnApi.Helpers;
 using SkyLearnApi.Services.Interfaces;
-
 namespace SkyLearnApi.Filters
 {
-     
-    /// Global action filter that handles cross-cutting concerns:
-    /// - Stopwatch timing
-    /// - Structured logging (request/response)
-    /// - Analytics tracking
-    /// - Exception logging
-    /// 
-    /// Issue #8 fix: Removes repetitive boilerplate from controllers.
-     
     public class ActivityTrackingFilter : IAsyncActionFilter
     {
         private readonly IActivityService _activityService;
@@ -32,12 +22,8 @@ namespace SkyLearnApi.Filters
             var actionName = context.RouteData.Values["action"]?.ToString() ?? "Unknown";
             var httpMethod = context.HttpContext.Request.Method;
             var path = context.HttpContext.Request.Path.ToString();
-
-            // Get user ID from claims
             var userIdClaim = context.HttpContext.User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var id) ? id : null;
-
-            // Log request start
             Log.Information(
                 "Request started: {HttpMethod} {Path} - Controller: {Controller}, Action: {Action}, UserId: {UserId}",
                 httpMethod, path, controllerName, actionName, userId);
@@ -81,20 +67,28 @@ namespace SkyLearnApi.Filters
                     var activityName = MapToActivityAction(controllerName, actionName, httpMethod);
                     var entityInfo = ExtractEntityInfo(context, resultContext);
 
-                    await _activityService.TrackAsync(
-                        activityName,
-                        userId: userId,
-                        entityName: controllerName,
-                        entityId: entityInfo.EntityId,
-                        description: $"{httpMethod} {path}",
-                        metadata: new
-                        {
-                            controller = controllerName,
-                            action = actionName,
-                            statusCode,
-                            requestArgs = SanitizeArguments(context.ActionArguments)
-                        },
-                        processingTimeMs: elapsedMs);
+                    try 
+                    {
+                        await _activityService.TrackAsync(
+                            activityName,
+                            userId: userId,
+                            entityName: controllerName,
+                            entityId: entityInfo.EntityId,
+                            description: $"{httpMethod} {path}",
+                            metadata: new
+                            {
+                                controller = controllerName,
+                                action = actionName,
+                                statusCode,
+                                requestArgs = SanitizeArguments(context.ActionArguments)
+                            },
+                            processingTimeMs: elapsedMs);
+                    }
+                    catch (Exception trackEx)
+                    {
+                        // Prevent activity logging failures from crashing the actual API response
+                        Log.Warning(trackEx, "Failed to track activity {ActivityName} for request {Path}. Ensure database migrations are up to date.", activityName, path);
+                    }
                 }
             }
         }

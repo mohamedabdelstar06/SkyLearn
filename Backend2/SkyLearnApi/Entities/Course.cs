@@ -3,7 +3,6 @@ namespace SkyLearnApi.Entities
     public class Course
     {
         public int Id { get; set; }
-
         public string Title { get; set; } = string.Empty;
         public string? Description { get; set; }
         public string ImageUrl { get; set; }
@@ -19,5 +18,8 @@ namespace SkyLearnApi.Entities
         public required ApplicationUser CreatedBy { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
+
+        // Navigation properties
+        public ICollection<Activity> Activities { get; set; } = new List<Activity>();
     }
 }

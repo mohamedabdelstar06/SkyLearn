@@ -1,9 +1,12 @@
-
+using SkyLearnApi.DTOs.ActivityLog;
 
 namespace SkyLearnApi.Services.Interfaces
 {
     public interface IActivityService
     {
+        // Gets all activity logs with pagination and filtering
+        Task<PagedActivityLogsResponseDto> GetAllAsync(ActivityLogFilterParams filterParams);
+
         // Tracks a general activity/event
         Task TrackAsync(
             string actionName,
@@ -14,19 +17,15 @@ namespace SkyLearnApi.Services.Interfaces
             object? metadata = null,
             long? processingTimeMs = null);
 
-        // Tracks a user login event with session initialization
+        // Tracks a user login event
         Task TrackLoginAsync(
             int userId,
-            string? sessionId = null,
-            string? jti = null,
             DateTime? tokenExpiresAt = null,
             object? metadata = null);
 
-        // Tracks a user logout event and calculates session duration
+        // Tracks a user logout event
         Task TrackLogoutAsync(
             int? userId,
-            string? sessionId = null,
-            string? jti = null,
             object? metadata = null);
 
         // Tracks a failed login attempt
@@ -47,9 +46,6 @@ namespace SkyLearnApi.Services.Interfaces
 
         // Tracks raw ActivityLog entity (for advanced scenarios)
         Task TrackRawAsync(ActivityLog activityLog);
-
-        // Gets the current request's session ID
-        string? GetCurrentSessionId();
 
         // Gets the current request's IP address
         string? GetCurrentIpAddress();

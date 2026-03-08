@@ -6,12 +6,9 @@
             this IServiceCollection services)
         {
             var config = TypeAdapterConfig.GlobalSettings;
-
             services.AddSingleton(config);
             services.AddScoped<IMapper, ServiceMapper>();
-
             MapConfig.RegisterMappings();
-
             return services;
         }
     }

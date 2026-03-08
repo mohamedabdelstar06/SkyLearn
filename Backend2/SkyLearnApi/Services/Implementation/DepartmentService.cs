@@ -19,6 +19,7 @@ namespace SkyLearnApi.Services.Implementations
                 .AsNoTracking()
                 .Include(d => d.Head)
                 .Include(d => d.Years)
+                    .ThenInclude(y => y.CreatedBy)
                 .ToListAsync();
 
             return departments.Select(d => new DepartmentDto
@@ -31,6 +32,7 @@ namespace SkyLearnApi.Services.Implementations
                 HeadName = d.Head != null ? d.Head.FullName : "Not Assigned",
                 CreatedAt = d.CreatedAt,
                 UpdatedAt = d.UpdatedAt,
+                NumberOfYears = d.Years.Count,
                 Years = d.Years.Adapt<ICollection<YearResponseDto>>()
             }).ToList();
         }

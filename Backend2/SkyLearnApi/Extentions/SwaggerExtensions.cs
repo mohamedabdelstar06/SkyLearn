@@ -13,34 +13,48 @@ namespace SkyLearnApi.Extentions
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
                     Title = "SkyLearn API",
-                    Version = "v1"
+                    Version = "v1",
+                    Description = "SkyLearn API Documentation with JWT Authentication",
+                    Contact = new OpenApiContact
+                    {
+                        Name = "SkyLearn Support"
+                    }
                 });
 
-                var jwtSecurityScheme = new OpenApiSecurityScheme
+                // Define the Bearer security scheme
+                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
-                    Scheme = "bearer",
-                    BearerFormat = "JWT",
+                    Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",
                     Name = "Authorization",
                     In = ParameterLocation.Header,
-                    Type = SecuritySchemeType.Http,
-                    Description =
-                        "Enter a valid JWT token in the format: Bearer {token}",
-                    Reference = new OpenApiReference
-                    {
-                        Type = ReferenceType.SecurityScheme,
-                        Id = "Bearer"
-                    }
-                };
+                    Type = SecuritySchemeType.ApiKey,
+                    Scheme = "Bearer",
+                    BearerFormat = "JWT"
+                });
 
-                c.AddSecurityDefinition("Bearer", jwtSecurityScheme);
-
+                // Make Bearer token required for all endpoints
                 c.AddSecurityRequirement(new OpenApiSecurityRequirement
                 {
                     {
-                        jwtSecurityScheme,
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Type = ReferenceType.SecurityScheme,
+                                Id = "Bearer"
+                            }
+                        },
                         Array.Empty<string>()
                     }
                 });
+
+                // Include XML comments if available
+                var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                if (File.Exists(xmlPath))
+                {
+                    c.IncludeXmlComments(xmlPath);
+                }
             });
 
             return services;

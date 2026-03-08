@@ -1,3 +1,5 @@
+using SkyLearnApi.Services.Interfaces;
+
 namespace SkyLearnApi.Services.Implementations
 {
     public class CourseService : ICourseService
@@ -6,13 +8,19 @@ namespace SkyLearnApi.Services.Implementations
         private readonly IMapper _mapper;
         private readonly IWebHostEnvironment _env;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly ILogger<CourseService> _logger;
+        private readonly INotificationService _notificationService;
 
-        public CourseService(AppDbContext context, IMapper mapper, IWebHostEnvironment env, UserManager<ApplicationUser> userManager)
+        public CourseService(AppDbContext context, IMapper mapper, IWebHostEnvironment env,
+            UserManager<ApplicationUser> userManager, ILogger<CourseService> logger,
+            INotificationService notificationService)
         {
             _context = context;
             _mapper = mapper;
             _env = env;
             _userManager = userManager;
+            _logger = logger;
+            _notificationService = notificationService;
         }
 
         public async Task<IEnumerable<CourseResponseDto>> GetAllAsync(
@@ -55,7 +63,6 @@ namespace SkyLearnApi.Services.Implementations
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
-
             // Get enrolled student counts for these courses
             var courseIds = courses.Select(c => c.Id).ToList();
             var yearIds = courses.Select(c => c.YearId).Distinct().ToList();
@@ -91,11 +98,25 @@ namespace SkyLearnApi.Services.Implementations
                 InstructorId = c.InstructorId,
                 InstructorName = c.Instructor.FullName,
                 CreatedAt = c.CreatedAt,
-                UpdatedAt = c.UpdatedAt
+                UpdatedAt = c.UpdatedAt,
+                Instructor = new InstructorInfoDto
+                {
+                    Id = c.Instructor.Id,
+                    FullName = c.Instructor.FullName,
+                    Email = c.Instructor.Email ?? "",
+                    DateOfBirth = c.Instructor.DateOfBirth,
+                    Gender = c.Instructor.Gender,
+                    City = c.Instructor.City,
+                    ProfileImageUrl = c.Instructor.ProfileImageUrl,
+                    IsActive = c.Instructor.IsActive,
+                    IsActivated = c.Instructor.IsActivated,
+                    CreatedAt = c.Instructor.CreatedAt,
+                    LastLoginAt = c.Instructor.LastLoginAt
+                }
             });
         }
 
-        public async Task<CourseResponseDto?> GetByIdAsync(int id)
+        public async Task<CourseResponseDto?> GetByIdAsync(int id, int? userId = null, string? userRole = null)
         {
             var course = await _context.Courses
                 .Include(c => c.Department)
@@ -113,7 +134,12 @@ namespace SkyLearnApi.Services.Implementations
                 .CountAsync(e => e.CourseId == id && e.StudentProfile.YearId != course.YearId);
             var enrolledCount = autoEnrolledCount + manualEnrolledCount;
 
-            return new CourseResponseDto
+            // Count activities by type using OfType<T> for TPH discrimination
+            var lecturesCount = await _context.Activities.OfType<Lecture>().CountAsync(l => l.CourseId == id);
+            var quizzesCount = await _context.Activities.OfType<Quiz>().CountAsync(q => q.CourseId == id);
+            var assignmentsCount = await _context.Activities.OfType<Assignment>().CountAsync(a => a.CourseId == id);
+
+            var dto = new CourseResponseDto
             {
                 Id = course.Id,
                 Title = course.Title,
@@ -128,12 +154,74 @@ namespace SkyLearnApi.Services.Implementations
                 InstructorId = course.InstructorId,
                 InstructorName = course.Instructor.FullName,
                 CreatedAt = course.CreatedAt,
-                UpdatedAt = course.UpdatedAt
+                UpdatedAt = course.UpdatedAt,
+                LecturesCount = lecturesCount,
+                QuizzesCount = quizzesCount,
+                AssignmentsCount = assignmentsCount,
+                Instructor = new InstructorInfoDto
+                {
+                    Id = course.Instructor.Id,
+                    FullName = course.Instructor.FullName,
+                    Email = course.Instructor.Email ?? "",
+                    DateOfBirth = course.Instructor.DateOfBirth,
+                    Gender = course.Instructor.Gender,
+                    City = course.Instructor.City,
+                    ProfileImageUrl = course.Instructor.ProfileImageUrl,
+                    IsActive = course.Instructor.IsActive,
+                    IsActivated = course.Instructor.IsActivated,
+                    CreatedAt = course.Instructor.CreatedAt,
+                    LastLoginAt = course.Instructor.LastLoginAt
+                }
             };
+
+            // Calculate student-specific progress if a student is requesting
+            if (userId.HasValue && userRole == Roles.Student)
+            {
+                var totalActivities = lecturesCount + quizzesCount + assignmentsCount;
+
+                if (totalActivities > 0)
+                {
+                    // Get all activity IDs for this course
+                    var courseActivityIds = await _context.Activities
+                        .Where(a => a.CourseId == id)
+                        .Select(a => a.Id)
+                        .ToListAsync();
+
+                    // Count how many the student has completed
+                    var completedCount = await _context.StudentActivityProgress
+                        .CountAsync(p => p.StudentId == userId.Value
+                                      && courseActivityIds.Contains(p.ActivityId)
+                                      && p.Status == "Completed");
+
+                    dto.ProgressPercentage = Math.Round(
+                        (decimal)completedCount / totalActivities * 100, 1);
+
+                    // Get the most recent access time across all activities in the course
+                    var lastAccess = await _context.StudentActivityProgress
+                        .Where(p => p.StudentId == userId.Value
+                                 && courseActivityIds.Contains(p.ActivityId)
+                                 && p.LastAccessedAt != null)
+                        .OrderByDescending(p => p.LastAccessedAt)
+                        .Select(p => p.LastAccessedAt)
+                        .FirstOrDefaultAsync();
+
+                    dto.LastAccessedAt = lastAccess;
+                }
+                else
+                {
+                    dto.ProgressPercentage = 0;
+                    dto.LastAccessedAt = null;
+                }
+            }
+
+            return dto;
         }
 
         public async Task<CourseResponseDto> CreateAsync(CourseRequestDto dto, int userId)
         {
+            _logger.LogInformation("Creating course. Title: {Title}, Department: {Department}, Year: {Year}, UserId: {UserId}",
+                dto.Title, dto.DepartmentName, dto.YearName, userId);
+
             var department = await _context.Departments
                 .FirstOrDefaultAsync(d => d.Name == dto.DepartmentName);
             if (department == null)
@@ -193,6 +281,12 @@ namespace SkyLearnApi.Services.Implementations
 
             await UpdateYearTotalsAsync(course.YearId);
 
+            // Notify all students in this course's specific Year and Department
+            await _notificationService.NotifyEnrolledStudentsAsync(course.Id, 
+                $"New Course: {course.Title}", 
+                $"A new course has been added to your academic year: {course.Title}. Click here to explore it!", 
+                "Course");
+
             var instructor = await _context.Users.FindAsync(instructorId);
             
             return new CourseResponseDto
@@ -210,7 +304,21 @@ namespace SkyLearnApi.Services.Implementations
                 InstructorId = instructorId,
                 InstructorName = instructor?.FullName ?? "",
                 CreatedAt = course.CreatedAt,
-                UpdatedAt = course.UpdatedAt
+                UpdatedAt = course.UpdatedAt,
+                Instructor = instructor != null ? new InstructorInfoDto
+                {
+                    Id = instructor.Id,
+                    FullName = instructor.FullName,
+                    Email = instructor.Email ?? "",
+                    DateOfBirth = instructor.DateOfBirth,
+                    Gender = instructor.Gender,
+                    City = instructor.City,
+                    ProfileImageUrl = instructor.ProfileImageUrl,
+                    IsActive = instructor.IsActive,
+                    IsActivated = instructor.IsActivated,
+                    CreatedAt = instructor.CreatedAt,
+                    LastLoginAt = instructor.LastLoginAt
+                } : null
             };
         }
 
@@ -218,7 +326,10 @@ namespace SkyLearnApi.Services.Implementations
         {
             var course = await _context.Courses.FindAsync(id);
             if (course == null)
+            {
+                _logger.LogWarning("UpdateCourse: Course {CourseId} not found", id);
                 return null;
+            }
 
             // Admins can update any course, Instructors can only update courses they are assigned to
             var userRole = await GetUserRoleAsync(userId);
@@ -237,7 +348,12 @@ namespace SkyLearnApi.Services.Implementations
             
             var oldYearId = course.YearId;
 
-            _mapper.Map(dto, course);
+            // Manual mapping instead of _mapper.Map(dto, course) to avoid
+            // Mapster overwriting FK fields/navigation properties and causing
+            // FOREIGN KEY constraint violations during SaveChanges.
+            course.Title = dto.Title;
+            course.Description = dto.Description;
+            course.CreditHours = dto.CreditHours;
             
             course.DepartmentId = department.Id;
             course.YearId = year.Id;
@@ -287,7 +403,10 @@ namespace SkyLearnApi.Services.Implementations
         {
             var course = await _context.Courses.FindAsync(id);
             if (course == null)
+            {
+                _logger.LogWarning("DeleteCourse: Course {CourseId} not found", id);
                 return false;
+            }
 
             // Admins can delete any course, Instructors can only delete courses they are assigned to
             var userRole = await GetUserRoleAsync(userId);

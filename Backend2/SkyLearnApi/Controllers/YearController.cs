@@ -32,11 +32,12 @@ namespace SkyLearnApi.Controllers
             return Ok(allYears);
         }
 
-        /// Get a single year by ID.
+        /// Get a single year by ID with full course details.
         [HttpGet("{id:int}")]
+        [Authorize(Roles = Roles.AdminOrInstructor)]
         public async Task<IActionResult> GetById(int id)
         {
-            var year = await _yearService.GetByIdAsync(id);
+            var year = await _yearService.GetByIdWithCoursesAsync(id);
 
             if (year == null)
             {

@@ -5,21 +5,27 @@ namespace SkyLearnApi.Services.Implementation
     public class EnrollmentService : IEnrollmentService
     {
         private readonly AppDbContext _context;
+        private readonly INotificationService _notificationService;
+        private readonly ILogger<EnrollmentService> _logger;
 
-        public EnrollmentService(AppDbContext context)
+        public EnrollmentService(AppDbContext context, INotificationService notificationService, ILogger<EnrollmentService> logger)
         {
             _context = context;
+            _notificationService = notificationService;
+            _logger = logger;
         }
 
         public async Task<List<StudentCourseDto>> GetStudentCoursesAsync(int studentId)
         {
+            _logger.LogDebug("Fetching courses for student {StudentId}", studentId);
+
             var profile = await _context.StudentProfiles
                 .AsNoTracking()
                 .FirstOrDefaultAsync(sp => sp.UserId == studentId);
 
             if (profile == null)
             {
-                Log.Warning("GetStudentCourses: No profile found for user {UserId}", studentId);
+                _logger.LogWarning("GetStudentCourses: No profile found for user {UserId}", studentId);
                 return new List<StudentCourseDto>();
             }
 
@@ -44,7 +50,11 @@ namespace SkyLearnApi.Services.Implementation
             var allCourses = yearCourses.Concat(manualCourses).DistinctBy(c => c.Id).ToList();
 
             if (!allCourses.Any())
+            {
+                _logger.LogDebug("No courses found for student {StudentId} (Year: {YearId}, Dept: {DeptId})",
+                    studentId, profile.YearId, profile.DepartmentId);
                 return new List<StudentCourseDto>();
+            }
 
             // Get enrolled student counts for these courses
             var courseIds = allCourses.Select(c => c.Id).ToList();
@@ -68,6 +78,9 @@ namespace SkyLearnApi.Services.Implementation
             // Get this student's manual enrollments (for EnrolledAt on manually enrolled courses)
             var studentManualEnrollmentDates = manualEnrollments.ToDictionary(e => e.CourseId, e => e.EnrolledAt);
 
+            _logger.LogDebug("Returning {Count} courses for student {StudentId} ({AutoCount} auto, {ManualCount} manual)",
+                allCourses.Count, studentId, yearCourses.Count, manualCourses.Count);
+
             return allCourses.Select(c => new StudentCourseDto
             {
                 CourseId = c.Id,
@@ -86,25 +99,29 @@ namespace SkyLearnApi.Services.Implementation
 
         public async Task<(bool Success, string? Error)> EnrollStudentAsync(int studentId, int courseId, int enrolledById, string userRole)
         {
+            _logger.LogInformation("Enrolling student {StudentId} in course {CourseId} by user {EnrolledBy} (Role: {Role})",
+                studentId, courseId, enrolledById, userRole);
+
             var profile = await _context.StudentProfiles
                 .FirstOrDefaultAsync(sp => sp.UserId == studentId);
 
             if (profile == null)
             {
-                Log.Warning("Enroll failed: Student {StudentId} not found or has no profile", studentId);
+                _logger.LogWarning("Enroll failed: Student {StudentId} not found or has no profile", studentId);
                 return (false, "Student not found or is not a student.");
             }
 
             var course = await _context.Courses.FindAsync(courseId);
             if (course == null)
             {
-                Log.Warning("Enroll failed: Course {CourseId} not found", courseId);
+                _logger.LogWarning("Enroll failed: Course {CourseId} not found", courseId);
                 return (false, "Course not found.");
             }
             // Instructors can only enroll students in courses they are assigned to
             if (userRole == Roles.Instructor && course.InstructorId != enrolledById)
             {
-                Log.Warning("Enroll failed: Instructor {InstructorId} attempted to enroll student in course {CourseId} they are not assigned to", enrolledById, courseId);
+                _logger.LogWarning("Enroll failed: Instructor {InstructorId} attempted to enroll student in course {CourseId} ('{CourseTitle}') they are not assigned to",
+                    enrolledById, courseId, course.Title);
                 return (false, "You can only enroll students in courses you are assigned to.");
             }
 
@@ -113,7 +130,8 @@ namespace SkyLearnApi.Services.Implementation
 
             if (exists)
             {
-                Log.Warning("Enroll failed: Student {StudentId} already enrolled in course {CourseId}", studentId, courseId);
+                _logger.LogWarning("Enroll failed: Student {StudentId} already enrolled in course {CourseId} ('{CourseTitle}')",
+                    studentId, courseId, course.Title);
                 return (false, "Student is already enrolled in this course.");
             }
 
@@ -128,34 +146,44 @@ namespace SkyLearnApi.Services.Implementation
             _context.Enrollments.Add(enrollment);
             await _context.SaveChangesAsync();
 
-            Log.Information("Student {StudentId} enrolled in course {CourseId} by user {EnrolledBy}",
-                studentId, courseId, enrolledById);
+            _logger.LogInformation("Student {StudentId} enrolled successfully in course {CourseId} ('{CourseTitle}') by user {EnrolledBy}",
+                studentId, courseId, course.Title, enrolledById);
+
+            // Notify the student they were enrolled
+            await _notificationService.CreateNotificationAsync(studentId,
+                "You've Been Enrolled",
+                $"You have been enrolled in course '{course.Title}'.",
+                "Enrollment", null);
 
             return (true, null);
         }
 
         public async Task<(bool Success, string? Error)> UnenrollStudentAsync(int studentId, int courseId, int userId, string userRole)
         {
+            _logger.LogInformation("Unenrolling student {StudentId} from course {CourseId} by user {UserId} (Role: {Role})",
+                studentId, courseId, userId, userRole);
+
             var profile = await _context.StudentProfiles
                 .FirstOrDefaultAsync(sp => sp.UserId == studentId);
 
             if (profile == null)
             {
-                Log.Warning("Unenroll failed: Student {StudentId} not found", studentId);
+                _logger.LogWarning("Unenroll failed: Student {StudentId} not found", studentId);
                 return (false, "Student not found.");
             }
 
             var course = await _context.Courses.FindAsync(courseId);
             if (course == null)
             {
-                Log.Warning("Unenroll failed: Course {CourseId} not found", courseId);
+                _logger.LogWarning("Unenroll failed: Course {CourseId} not found", courseId);
                 return (false, "Course not found.");
             }
 
             // Instructors can only unenroll students from courses they are assigned to
             if (userRole == Roles.Instructor && course.InstructorId != userId)
             {
-                Log.Warning("Unenroll failed: Instructor {InstructorId} attempted to unenroll student from course {CourseId} they are not assigned to", userId, courseId);
+                _logger.LogWarning("Unenroll failed: Instructor {InstructorId} attempted to unenroll student from course {CourseId} ('{CourseTitle}') they are not assigned to",
+                    userId, courseId, course.Title);
                 return (false, "You can only unenroll students from courses you are assigned to.");
             }
 
@@ -164,16 +192,24 @@ namespace SkyLearnApi.Services.Implementation
 
             if (enrollment == null)
             {
-                Log.Warning("Unenroll failed: Student {StudentId} not enrolled in course {CourseId}", studentId, courseId);
+                _logger.LogWarning("Unenroll failed: Student {StudentId} not enrolled in course {CourseId}", studentId, courseId);
                 return (false, "Student is not enrolled in this course.");
             }
 
             _context.Enrollments.Remove(enrollment);
             await _context.SaveChangesAsync();
 
-            Log.Information("Student {StudentId} unenrolled from course {CourseId} by user {UserId}", studentId, courseId, userId);
+            _logger.LogInformation("Student {StudentId} unenrolled from course {CourseId} ('{CourseTitle}') by user {UserId}",
+                studentId, courseId, course.Title, userId);
+
+            // Notify the student they were unenrolled
+            await _notificationService.CreateNotificationAsync(studentId,
+                "Course Enrollment Removed",
+                $"You have been removed from course '{course.Title}'.",
+                "Unenrollment", null);
 
             return (true, null);
         }
     }
 }
+

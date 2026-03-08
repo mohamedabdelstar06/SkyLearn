@@ -25,7 +25,6 @@ namespace SkyLearnApi.Controllers
         {
             if (UserId == null)
                 return Unauthorized(new { message = "Invalid token" });
-
             var courses = await _enrollmentService.GetStudentCoursesAsync(UserId.Value);
             return Ok(courses);
         }

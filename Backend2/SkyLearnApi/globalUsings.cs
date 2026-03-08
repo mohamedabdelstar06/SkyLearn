@@ -37,4 +37,12 @@ global using System.Text.Json;
 global using System.Text.Json.Serialization;
 global using SkyLearnApi.DTOs.Import;
 global using SkyLearnApi.DTOs.Enrollment;
+global using SkyLearnApi.DTOs.ActivityLog;
 global using SkyLearnApi.Extentions;
+global using SkyLearnApi.DTOs.Lectures;
+global using SkyLearnApi.DTOs.Quizzes;
+global using SkyLearnApi.DTOs.Assignments;
+global using SkyLearnApi.DTOs.Comments;
+global using SkyLearnApi.DTOs.Activities;
+global using SkyLearnApi.DTOs.Notifications;
+

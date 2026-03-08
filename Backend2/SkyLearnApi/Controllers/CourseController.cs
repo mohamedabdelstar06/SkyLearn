@@ -1,10 +1,8 @@
 namespace SkyLearnApi.Controllers
 {
-    /// <summary>
     /// Course management controller
     /// Only Admin and Instructor can access course management.
     /// Students use the Enrollment/my-courses endpoint to see their courses.
-    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(Roles = Roles.AdminOrInstructor)]
@@ -51,7 +49,7 @@ namespace SkyLearnApi.Controllers
 
             try
             {
-                var result = await _courseService.GetByIdAsync(id);
+                var result = await _courseService.GetByIdAsync(id, UserId, UserRole);
 
                 if (result == null)
                 {

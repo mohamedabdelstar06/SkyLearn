@@ -1,3 +1,5 @@
+using Hangfire;
+
 namespace SkyLearnApi.Services.Implementation
 {
     /// Service for Admin-only user management operations.
@@ -9,19 +11,25 @@ namespace SkyLearnApi.Services.Implementation
         private readonly IActivityService _activityService;
         private readonly AppDbContext _dbContext;
         private readonly IWebHostEnvironment _environment;
+        private readonly ILogger<UserService> _logger;
+        private readonly IBackgroundJobClient _backgroundJobClient;
 
         public UserService(
             UserManager<ApplicationUser> userManager,
             RoleManager<IdentityRole<int>> roleManager,
             IActivityService activityService,
             AppDbContext dbContext,
-            IWebHostEnvironment environment)
+            IWebHostEnvironment environment,
+            ILogger<UserService> logger,
+            IBackgroundJobClient backgroundJobClient)
         {
             _userManager = userManager;
             _roleManager = roleManager;
             _activityService = activityService;
             _dbContext = dbContext;
             _environment = environment;
+            _logger = logger;
+            _backgroundJobClient = backgroundJobClient;
         }
 
         public async Task<PagedUsersResponseDto> GetAllUsersAsync(UserFilterParams filterParams)
@@ -105,10 +113,21 @@ namespace SkyLearnApi.Services.Implementation
                 return MapToResponseDto(user, role, profile);
             }).ToList();
 
+            // Compute role-based counts (global, not filtered)
+            var roleCounts = await (
+                from ur in _dbContext.UserRoles
+                join r in _dbContext.Roles on ur.RoleId equals r.Id
+                group r by r.Name into g
+                select new { RoleName = g.Key, Count = g.Count() }
+            ).ToDictionaryAsync(x => x.RoleName ?? "", x => x.Count);
+
             return new PagedUsersResponseDto
             {
                 Users = userDtos,
                 TotalCount = totalCount,
+                TotalAdmins = roleCounts.GetValueOrDefault("Admin"),
+                TotalInstructors = roleCounts.GetValueOrDefault("Instructor"),
+                TotalStudents = roleCounts.GetValueOrDefault("Student"),
                 PageNumber = filterParams.PageNumber,
                 PageSize = filterParams.PageSize
             };
@@ -139,11 +158,24 @@ namespace SkyLearnApi.Services.Implementation
 
         public async Task<(UserResponseDto? User, string? Error)> CreateUserAsync(CreateUserDto dto)
         {
+            _logger.LogInformation("Creating user. Email: {Email}, Role: {Role}, FullName: {FullName}",
+                dto.Email, dto.Role, dto.FullName);
             // Check if email already exists
             var existingUser = await _userManager.FindByEmailAsync(dto.Email);
             if (existingUser != null)
             {
-                return (null, "A user with this email already exists");
+                return (null, $"The email '{dto.Email}' is already registered. Please use a different email address.");
+            }
+
+            // Check if NationalId already exists
+            if (!string.IsNullOrWhiteSpace(dto.NationalId))
+            {
+                var nationalIdExists = await _dbContext.Users
+                    .AnyAsync(u => u.NationalId == dto.NationalId);
+                if (nationalIdExists)
+                {
+                    return (null, $"The National ID '{dto.NationalId}' is already registered. Each user must have a unique National ID.");
+                }
             }
 
             // Validate role
@@ -202,6 +234,7 @@ namespace SkyLearnApi.Services.Implementation
             if (!createResult.Succeeded)
             {
                 var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
+                _logger.LogWarning("Failed to create user {Email}: {Errors}", dto.Email, errors);
                 return (null, $"Failed to create user: {errors}");
             }
 
@@ -210,6 +243,7 @@ namespace SkyLearnApi.Services.Implementation
             {
                 await _userManager.DeleteAsync(user);
                 var errors = string.Join(", ", roleResult.Errors.Select(e => e.Description));
+                _logger.LogWarning("Failed to assign role {Role} to user {Email}: {Errors}", dto.Role, dto.Email, errors);
                 return (null, $"Failed to assign role: {errors}");
             }
 
@@ -244,17 +278,25 @@ namespace SkyLearnApi.Services.Implementation
                 description: $"Admin created user {user.Email} with role {dto.Role} (pending activation)",
                 metadata: new { role = dto.Role, email = user.Email, pendingActivation = true });
 
-            Log.Information("User created by Admin: {Email} with role {Role} (pending activation)", 
-                user.Email, dto.Role);
+            _logger.LogInformation("User created successfully. UserId: {UserId}, Email: {Email}, Role: {Role}, PendingActivation: true",
+                user.Id, user.Email, dto.Role);
+
+            // Send immediate welcome email
+            _backgroundJobClient.Enqueue<EmailJobs>(j => 
+                j.SendWelcomeEmailAsync(user.Email, user.FullName, dto.Role));
 
             return (MapToResponseDto(user, dto.Role, profile), null);
         }
 
         public async Task<(UserResponseDto? User, string? Error)> UpdateUserAsync(int userId, UpdateUserDto dto)
         {
+            _logger.LogInformation("Updating user {UserId}. Name: {FullName}, Role: {Role}",
+                userId, dto.FullName, dto.Role);
+
             var user = await _userManager.FindByIdAsync(userId.ToString());
             if (user == null)
             {
+                _logger.LogWarning("UpdateUser failed: User {UserId} not found", userId);
                 return (null, "User not found");
             }
 
@@ -415,9 +457,12 @@ namespace SkyLearnApi.Services.Implementation
 
         public async Task<(bool Success, string? Error)> DeleteUserAsync(int userId, bool hardDelete = false)
         {
+            _logger.LogInformation("Deleting user {UserId}. HardDelete: {HardDelete}", userId, hardDelete);
+
             var user = await _userManager.FindByIdAsync(userId.ToString());
             if (user == null)
             {
+                _logger.LogWarning("DeleteUser failed: User {UserId} not found", userId);
                 return (false, "User not found");
             }
 

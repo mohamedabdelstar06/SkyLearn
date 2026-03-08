@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Identity;
 using SkyLearnApi.Data;
 using SkyLearnApi.Entities;
 using SkyLearnApi.Helpers;
-
 namespace SkyLearnApi.Extentions
 {
     public static class IdentityServicesExtensions
@@ -16,13 +15,10 @@ namespace SkyLearnApi.Extentions
                 options.Password.RequireLowercase = true;
                 options.Password.RequireUppercase = true;
                 options.Password.RequireNonAlphanumeric = false;
-                
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.AllowedForNewUsers = true;
-                
                 options.User.RequireUniqueEmail = true;
-                
                 options.SignIn.RequireConfirmedEmail = false;
                 options.SignIn.RequireConfirmedAccount = false;
             })
@@ -31,7 +27,6 @@ namespace SkyLearnApi.Extentions
 
             return services;
         }
-
         public static async Task SeedRolesAsync(this IServiceProvider serviceProvider)
         {
             using var scope = serviceProvider.CreateScope();

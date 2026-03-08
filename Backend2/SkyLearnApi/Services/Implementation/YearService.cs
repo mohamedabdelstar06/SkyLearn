@@ -17,6 +17,69 @@ namespace SkyLearnApi.Services.Implementation
 
             return year?.Adapt<YearResponseDto>();
         }
+
+        public async Task<YearDetailResponseDto?> GetByIdWithCoursesAsync(int id)
+        {
+            var year = await _db.Years
+                .Include(y => y.Department)
+                .Include(y => y.CreatedBy)
+                .FirstOrDefaultAsync(y => y.Id == id);
+
+            if (year == null) return null;
+            // Get all courses for this year with instructor info
+            var courses = await _db.Courses
+                .Include(c => c.Department)
+                .Include(c => c.Year)
+                .Include(c => c.Instructor)
+                .Where(c => c.YearId == id)
+                .OrderByDescending(c => c.CreatedAt)
+                .ToListAsync();
+            var courseIds = courses.Select(c => c.Id).ToList();
+            // Count students automatically enrolled via year (all students in this year)
+            var autoEnrolledCount = await _db.StudentProfiles.CountAsync(sp => sp.YearId == id);
+            // Count manual enrollments from other years
+            var manualEnrollmentCounts = await _db.Enrollments
+                .Include(e => e.StudentProfile)
+                .Where(e => courseIds.Contains(e.CourseId))
+                .Where(e => e.StudentProfile.YearId != e.Course.YearId)
+                .GroupBy(e => e.CourseId)
+                .Select(g => new { CourseId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.CourseId, x => x.Count);
+
+            var courseDtos = courses.Select(c => new CourseResponseDto
+            {
+                Id = c.Id,
+                Title = c.Title,
+                Description = c.Description,
+                DepartmentId = c.DepartmentId,
+                DepartmentName = c.Department.Name,
+                YearId = c.YearId,
+                YearName = c.Year.Name,
+                CreditHours = c.CreditHours,
+                EnrolledStudentsCount = autoEnrolledCount + manualEnrollmentCounts.GetValueOrDefault(c.Id, 0),
+                ImageUrl = c.ImageUrl,
+                InstructorId = c.InstructorId,
+                InstructorName = c.Instructor.FullName,
+                CreatedAt = c.CreatedAt,
+                UpdatedAt = c.UpdatedAt
+            }).ToList();
+
+            return new YearDetailResponseDto
+            {
+                Id = year.Id,
+                Name = year.Name,
+                Description = year.Description,
+                StartDate = year.StartDate,
+                EndDate = year.EndDate,
+                TotalCourses = courses.Count,
+                TotalHours = year.TotalHours,
+                DepartmentName = year.Department.Name,
+                CreatedBy = year.CreatedBy.FullName,
+                CreatedAt = year.CreatedAt,
+                UpdatedAt = year.UpdatedAt,
+                Courses = courseDtos
+            };
+        }
         ///Gets a year and validates it belongs to the specified department.
         public async Task<YearResponseDto?> GetByIdAndDepartmentAsync(int id, int departmentId)
         {

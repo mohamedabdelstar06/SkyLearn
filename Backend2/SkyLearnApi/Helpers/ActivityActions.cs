@@ -1,9 +1,5 @@
 namespace SkyLearnApi.Helpers
 {
-     
-    /// Unified activity action constants for the ActivityLog system.
-    /// Used for both auditing and analytics tracking.
-     
     public static class ActivityActions
     {
         // Authentication Events
@@ -67,5 +63,42 @@ namespace SkyLearnApi.Helpers
         public const string SquadronListViewed = "SquadronListViewed";
         // Import Events
         public const string BulkImportStudents = "BulkImportStudents";
+        // Lecture Events
+        public const string LectureCreated = "LectureCreated";
+        public const string LectureUpdated = "LectureUpdated";
+        public const string LectureDeleted = "LectureDeleted";
+        public const string LectureViewed = "LectureViewed";
+        public const string LectureSummarized = "LectureSummarized";
+        public const string LectureTranscribed = "LectureTranscribed";
+        // Quiz Events
+        public const string QuizCreated = "QuizCreated";
+        public const string QuizUpdated = "QuizUpdated";
+        public const string QuizDeleted = "QuizDeleted";
+        public const string QuizGeneratedByAI = "QuizGeneratedByAI";
+        public const string QuizStarted = "QuizStarted";
+        public const string QuizSubmitted = "QuizSubmitted";
+        public const string QuizGraded = "QuizGraded";
+        public const string QuizTranslated = "QuizTranslated";
+        // Assignment Events
+        public const string AssignmentCreated = "AssignmentCreated";
+        public const string AssignmentUpdated = "AssignmentUpdated";
+        public const string AssignmentDeleted = "AssignmentDeleted";
+        public const string AssignmentSubmitted = "AssignmentSubmitted";
+        public const string AssignmentGraded = "AssignmentGraded";
+        // Comment Events
+        public const string CommentCreated = "CommentCreated";
+        public const string CommentUpdated = "CommentUpdated";
+        public const string CommentDeleted = "CommentDeleted";
+        public const string CommentLiked = "CommentLiked";
+        public const string CommentUnliked = "CommentUnliked";
+        // Notification Events
+        public const string NotificationCreated = "NotificationCreated";
+        public const string NotificationRead = "NotificationRead";
+        // Student Activity Progress Events
+        public const string ActivityStarted = "ActivityStarted";
+        public const string ActivityHeartbeat = "ActivityHeartbeat";
+        public const string ActivityEnded = "ActivityEnded";
+        public const string ActivityCompleted = "ActivityCompleted";
     }
 }
+

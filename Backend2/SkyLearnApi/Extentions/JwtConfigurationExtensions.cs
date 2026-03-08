@@ -8,7 +8,6 @@
         {
             services.Configure<JwtSettings>(
                 configuration.GetSection("Jwt"));
-
             return services;
         }
     }

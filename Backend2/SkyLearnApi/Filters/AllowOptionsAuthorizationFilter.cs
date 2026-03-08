@@ -11,7 +11,6 @@ namespace SkyLearnApi.Filters
             {
                 context.Result = new OkResult();
             }
-
             return Task.CompletedTask;
         }
     }
